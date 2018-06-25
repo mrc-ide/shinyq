@@ -9,7 +9,8 @@ ui <- shiny::shinyUI(
           min = 0,
           max = 11,
           value = 5,
-          step = 1)),
+          step = 1),
+        shiny::actionButton("go", "Go!", class = "btn-primary")),
       shiny::mainPanel(
         shiny::plotOutput("plot"),
         shiny::uiOutput("queue")))))
@@ -18,15 +19,18 @@ ui <- shiny::shinyUI(
 server <- function(input, output, session) {
   data <- reactiveValues(value = NULL)
 
-  shiny::observe({
-    p <- input$parameter
-    xx <- 0:20
-    data$value <- list(x = xx, y = dpois(xx, p))
-  })
+  shiny::observeEvent(
+    input$go, {
+      p <- input$parameter
+      xx <- 0:20
+      data$value <- list(x = xx, y = dpois(xx, p))
+    })
 
   output$plot <- shiny::renderPlot({
-    barplot(data$value$y, axes = FALSE)
-    axis(1)
+    if (!is.null(data$value)) {
+      barplot(data$value$y, axes = FALSE)
+      axis(1)
+    }
   })
 }
 
