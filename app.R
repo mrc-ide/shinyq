@@ -1,5 +1,6 @@
 ui <- shiny::shinyUI(
   shiny::fluidPage(
+    shinyjs::useShinyjs(),
     shiny::titlePanel("Shiny queue"),
     shiny::sidebarLayout(
       shiny::sidebarPanel(
@@ -21,6 +22,7 @@ server <- function(input, output, session) {
 
   shiny::observeEvent(
     input$go, {
+      shinyjs::disable("go")
       job <- submit(input$parameter)
       reactive_queue(rv, "data", job, session)
     })
@@ -28,6 +30,7 @@ server <- function(input, output, session) {
   output$plot <- shiny::renderPlot({
     value <- rv$data
     if (isTRUE(value$done)) {
+      shinyjs::enable("go")
       barplot(value$result$y, axes = FALSE)
       axis(1)
     }
