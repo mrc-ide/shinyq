@@ -16,10 +16,16 @@ ui <- shiny::shinyUI(
 
 
 server <- function(input, output, session) {
-  output$plot <- shiny::renderPlot({
+  data <- reactiveValues(value = NULL)
+
+  shiny::observe({
     p <- input$parameter
     xx <- 0:20
-    barplot(dpois(xx, p), axes = FALSE)
+    data$value <- list(x = xx, y = dpois(xx, p))
+  })
+
+  output$plot <- shiny::renderPlot({
+    barplot(data$value$y, axes = FALSE)
     axis(1)
   })
 }
