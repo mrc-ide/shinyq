@@ -12,48 +12,69 @@ ui <- shiny::shinyUI(
           step = 1),
         shiny::actionButton("go", "Go!", class = "btn-primary")),
       shiny::mainPanel(
-        shiny::plotOutput("plot"),
-        shiny::uiOutput("queue")))))
+        shiny::uiOutput("queue"),
+        shiny::plotOutput("plot")))))
 
 
 server <- function(input, output, session) {
-  data <- reactiveValues(value = NULL)
+  rv <- reactiveValues(data = NULL)
 
   shiny::observeEvent(
     input$go, {
-      p <- input$parameter
-      xx <- 0:20
-      data$value <- list(x = xx, y = dpois(xx, p))
-      job <- submit(p)
-
-      ## Poll every 50ms for changes here
-      poll <- 50
-      obs <- shiny::observe({
-        value <- job()
-        data$value <- value
-        if (isTRUE(value$done)) {
-          obs$destroy()
-        } else {
-          shiny::invalidateLater(poll, session)
-        }
-      })
+      job <- submit(input$parameter)
+      reactive_queue(rv, "data", job, session)
     })
 
   output$plot <- shiny::renderPlot({
-    value <- data$value
+    value <- rv$data
     if (isTRUE(value$done)) {
-      barplot(value$value$y, axes = FALSE)
+      barplot(value$result$y, axes = FALSE)
       axis(1)
     }
   })
 
   output$queue <- shiny::renderUI({
-    q <- data$value$queue
+    q <- rv$data$queue
     if (!is.null(q)) {
-      shiny::p(sprintf("queue: %d", q))
+      if (q > 0L) {
+        head <- "Job is queued"
+        body <- sprintf("There are %d jobs ahead of you", q)
+      } else {
+        head <- "Job is running"
+        body <- "Results incoming..."
+      }
+      shiny::div(
+        class = "panel-group",
+        shiny::div(
+          class = "panel panel-info",
+          shiny::div(class = "panel-heading", head),
+          shiny::div(class = "panel-body", body)))
     }
   })
 }
+
+
+## the function poll takes no arguments and returns a list with:
+##
+##   done: TRUE when we should stop
+##   queue: data, (NULL when done) indicating queue state
+##   result: data, (NULL when not done) with final output
+##
+## rv: reactive values
+## name: name to store as
+## interval: interval to poll as
+reactive_queue <- function(rv, name, poll, session, interval = 50) {
+  obs <- shiny::observe({
+    value <- poll()
+    rv[[name]] <- value
+    if (isTRUE(value$done)) {
+      obs$destroy()
+    } else {
+      shiny::invalidateLater(interval, session)
+    }
+  })
+}
+
 
 
 ## Here's a pollable job
@@ -67,13 +88,14 @@ submit <- function(p) {
       xx <- 0:20
       list(done = TRUE,
            queue = NULL,
-           value = list(x = xx, y = dpois(xx, p)))
+           result = list(x = xx, y = dpois(xx, p)))
     } else {
       list(done = FALSE,
            queue = floor(as.numeric(dt, "secs")),
-           value = NULL)
+           result = NULL)
     }
   }
 }
+
 
 shiny::shinyApp(ui, server)
