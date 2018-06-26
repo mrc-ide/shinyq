@@ -1,59 +1,77 @@
-ui <- shiny::shinyUI(
-  shiny::fluidPage(
-    shinyjs::useShinyjs(),
-    shiny::titlePanel("Shiny queue"),
-    shiny::sidebarLayout(
-      shiny::sidebarPanel(
-        shiny::sliderInput(
-          "parameter",
-          "Parameter value",
-          min = 0,
-          max = 11,
-          value = 5,
-          step = 1),
-        shiny::actionButton("go", "Go!", class = "btn-primary")),
-      shiny::mainPanel(
-        shiny::uiOutput("queue"),
-        shiny::plotOutput("plot")))))
+## Shiny is pretty chill about the idea of having everything be
+## globals and that makes me a bit uneasey. So the 'server' function
+## is set up as a closure to avoid a global queue object.  This should
+## still see the construction of the queue done once across all
+## sessions.
+start_queue <- function(name = "shinyq", workers = 1L) {
+  ctx <- context::context_save("context", sources = "model.R", name = name)
+
+  context::context_read(name, "context")
+  ctx <- context::context_load(ctx)
+  rrq <- rrq::rrq_controller(ctx, redux::hiredis())
+  if (workers > 0L) {
+    rrq::worker_spawn(rrq, workers)
+  }
+  ## Once we exit ensure that everything stops
+  reg.finalizer(rrq, function(e) {
+    message("Destroying queue")
+    e$destroy()
+  })
+  rrq
+}
 
 
-server <- function(input, output, session) {
-  rv <- reactiveValues(data = NULL)
+ui <- function() {
+  shiny::shinyUI(
+    shiny::fluidPage(
+      shinyjs::useShinyjs(),
+      shiny::titlePanel("Shiny queue"),
+      shiny::sidebarLayout(
+        shiny::sidebarPanel(
+          shiny::sliderInput(
+            "parameter", "Parameter value",
+            min = 0, max = 11, value = 5, step = 1),
+          shiny::actionButton("go", "Go!", class = "btn-primary")),
+        shiny::mainPanel(
+          shiny::uiOutput("queue"),
+          shiny::plotOutput("plot")))))
+}
 
-  shiny::observeEvent(
-    input$go, {
-      shinyjs::disable("go")
-      job <- submit(input$parameter)
-      reactive_queue(rv, "data", job, session)
+
+server <- function(name = "shinyq") {
+  rrq <- start_queue(name)
+
+  function(input, output, session) {
+    rv <- reactiveValues(data = NULL)
+
+    ## Convert user input into a queued job.  Need to disable the
+    ## submit button at the same time or things get _very_ confused!
+    ## There is some support for interrupting jobs in rrq but it's
+    ## probably not good enough to plug in here yet.
+    shiny::observeEvent(
+      input$go, {
+        shinyjs::disable("go")
+        job <- submit(rrq, quote(user_model), input$parameter)
+        reactive_queue(rv, "data", job, session)
+      })
+
+    ## Status field that for reporting how the queue looks when we're
+    ## running a job.  It doesn't report the actrual
+    output$queue <- shiny::renderUI({
+      queue_status(rv$data$queue)
     })
 
-  output$plot <- shiny::renderPlot({
-    value <- rv$data
-    if (isTRUE(value$done)) {
-      shinyjs::enable("go")
-      barplot(value$result$y, axes = FALSE)
-      axis(1)
-    }
-  })
-
-  output$queue <- shiny::renderUI({
-    q <- rv$data$queue
-    if (!is.null(q)) {
-      if (q > 0L) {
-        head <- "Job is queued"
-        body <- sprintf("There are %d jobs ahead of you", q)
-      } else {
-        head <- "Job is running"
-        body <- "Results incoming..."
+    ## This is the bit that _does_ something with the model results.
+    ## It's totally decoupled from the queue.
+    output$plot <- shiny::renderPlot({
+      value <- rv$data
+      if (isTRUE(value$done)) {
+        shinyjs::enable("go")
+        barplot(value$result$y, axes = FALSE)
+        axis(1)
       }
-      shiny::div(
-        class = "panel-group",
-        shiny::div(
-          class = "panel panel-info",
-          shiny::div(class = "panel-heading", head),
-          shiny::div(class = "panel-body", body)))
-    }
-  })
+    })
+  }
 }
 
 
@@ -79,26 +97,43 @@ reactive_queue <- function(rv, name, poll, session, interval = 50) {
 }
 
 
+## Submit a job and return a function that conforms to the above
+submit <- function(rrq, fun, ...) {
+  id <- rrq$call(fun, ...)
 
-## Here's a pollable job
-submit <- function(p) {
-  t0 <- Sys.time()
-  t1 <- t0 + 4
-  force(p)
   function() {
-    dt <- t1 - Sys.time()
-    if (dt < 0) {
-      xx <- 0:20
-      list(done = TRUE,
-           queue = NULL,
-           result = list(x = xx, y = dpois(xx, p)))
+    status <- rrq$task_status(id)
+    done <- c("ERROR", "COMPLETE")
+    if (status %in% done) {
+      list(done = TRUE, queue = NULL,
+           result = rrq$task_result(id))
     } else {
-      list(done = FALSE,
-           queue = floor(as.numeric(dt, "secs")),
-           result = NULL)
+      list(done = FALSE, result = NULL,
+           queue = list(status = status, position = rrq$task_position(id)))
     }
   }
 }
 
 
-shiny::shinyApp(ui, server)
+## Construct bootstrap status boxes out of the value of the submit
+## function
+queue_status <- function(q) {
+  if (!is.null(q)) {
+    head <- sprintf("Job is %s", tolower(q$status))
+    if (q$position > 0L) {
+      body <- sprintf("There are %d jobs ahead of you", q$position - 1L)
+    } else {
+      body <- "Results incoming..."
+    }
+    shiny::div(
+      class = "panel-group",
+      shiny::div(
+        class = "panel panel-info",
+        shiny::div(class = "panel-heading", head),
+        shiny::div(class = "panel-body", body)))
+  }
+}
+
+
+## And we're off!
+shiny::shinyApp(ui, server())
