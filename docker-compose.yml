@@ -1,0 +1,18 @@
+version: "3"
+
+services:
+  redis:
+    image: redis
+
+  server:
+    image: mrcide/shinyq
+    ports:
+      - "3838:3838"
+    depends_on:
+      - redis
+
+  worker:
+    image: mrcide/shinyq
+    entrypoint: ["/srv/shiny-server/shinyq/worker"]
+    depends_on:
+      - redis
