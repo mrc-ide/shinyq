@@ -62,7 +62,7 @@ server <- function(name = "shinyq", workers = 0L) {
       })
 
     ## Status field that for reporting how the queue looks when we're
-    ## running a job.  It doesn't report the actrual
+    ## running a job.
     output$queue <- shiny::renderUI({
       queue_status(rv$data$queue)
     })
@@ -81,15 +81,17 @@ server <- function(name = "shinyq", workers = 0L) {
 }
 
 
+## rv: reactive values
+## name: name to store as within rv (this feels really awkward)
+## poll: The polling function
+## session: the shiny session object
+## interval: interval to poll the job in milliseconds
+##
 ## the function poll takes no arguments and returns a list with:
 ##
 ##   done: TRUE when we should stop
 ##   queue: data, (NULL when done) indicating queue state
 ##   result: data, (NULL when not done) with final output
-##
-## rv: reactive values
-## name: name to store as
-## interval: interval to poll as
 reactive_queue <- function(rv, name, poll, session, interval = 50) {
   obs <- shiny::observe({
     value <- poll()
@@ -103,7 +105,9 @@ reactive_queue <- function(rv, name, poll, session, interval = 50) {
 }
 
 
-## Submit a job and return a function that conforms to the above
+## Submit a job and return a function that conforms to the above.  It
+## takes a quoted symbol as 'fun' and any needed arguments through
+## '...'.
 submit <- function(rrq, fun, ...) {
   id <- rrq$call(fun, ...)
 
