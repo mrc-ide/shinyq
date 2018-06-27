@@ -26,7 +26,14 @@ docker-compose up --scale worker=4
 
 (the `--no-recreate` argument avoids the awkward wait while old workers are killed, and ensures no work is lost).
 
-## Deployment issues
+### Building the containers
+
+```
+./docker/build
+./docker/push
+```
+
+### Deployment issues
 
 There are two sources of annoyance here; organising communication with redis and preparing the context.
 
