@@ -1,2 +1,8 @@
+.idea
+.Renviron
+.Rhistory
 context
+packages/
+rrq_data.bin
+rrq_data.yml
 worker
