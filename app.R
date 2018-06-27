@@ -1,9 +1,10 @@
 ## Shiny is pretty chill about the idea of having everything be
 ## globals and that makes me a bit uneasey. So the 'server' function
-## is set up as a closure to avoid a global queue object.  This should
-## still see the construction of the queue done once across all
-## sessions.
-start_queue <- function(name = "shinyq", workers = 1L) {
+## is set up as a closure to avoid a global queue object.  Each worker
+## process will create a queue and that will persist until all
+## sessions disconnect.  So we could create workers here and tear
+## everything down, or we can create workers somewhat separately.
+start_queue <- function(name = "shinyq", workers = 0L) {
   ctx <- context::context_save("context", sources = "model.R", name = name)
 
   context::context_read(name, "context")
@@ -11,12 +12,11 @@ start_queue <- function(name = "shinyq", workers = 1L) {
   rrq <- rrq::rrq_controller(ctx, redux::hiredis())
   if (workers > 0L) {
     rrq::worker_spawn(rrq, workers)
+    reg.finalizer(rrq, function(e) {
+      message("Stopping workers")
+      rrq$worker_stop()
+    })
   }
-  ## Once we exit ensure that everything stops
-  reg.finalizer(rrq, function(e) {
-    message("Destroying queue")
-    e$destroy()
-  })
   rrq
 }
 
@@ -38,8 +38,8 @@ ui <- function() {
 }
 
 
-server <- function(name = "shinyq") {
-  rrq <- start_queue(name)
+server <- function(name = "shinyq", workers = 0L) {
+  rrq <- start_queue(name, workers)
 
   function(input, output, session) {
     rv <- reactiveValues(data = NULL)
