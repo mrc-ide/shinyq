@@ -1,7 +1,3 @@
-context_init <- function(root = "context", name = "shinyq") {
-  context::context_save("context", sources = "model.R", name = name)
-}
-
 ## Shiny is pretty chill about the idea of having everything be
 ## globals and that makes me a bit uneasey. So the 'server' function
 ## is set up as a closure to avoid a global queue object.  Each worker
@@ -9,13 +5,13 @@ context_init <- function(root = "context", name = "shinyq") {
 ## sessions disconnect.  So we could create workers here and tear
 ## everything down, or we can create workers somewhat separately.
 start_queue <- function(name = "shinyq", workers = 0L) {
-  ctx <- context::context_load(context_init(name = name))
-
   message("connecting to redis at ", redux::redis_config()$url)
   con <- redux::hiredis()
 
   message("Starting queue")
-  rrq <- rrq::rrq_controller(ctx, con)
+  rrq <- rrq::rrq_controller(name, con)
+  rrq$envir(function(envir) sys.source("model.R", envir))
+
   if (workers > 0L) {
     rrq::worker_spawn(rrq, workers)
     reg.finalizer(rrq, function(e) {
@@ -108,8 +104,10 @@ reactive_queue <- function(rv, name, poll, session, interval = 50) {
 ## Submit a job and return a function that conforms to the above.  It
 ## takes a quoted symbol as 'fun' and any needed arguments through
 ## '...'.
-submit <- function(rrq, fun, ...) {
-  id <- rrq$call(fun, ...)
+submit <- function(rrq, ...) {
+  ## NOTE: there used to be a rrq$call(fun, ...) method to help here
+  ## but that needs reimplementing in rrq.
+  id <- rrq$enqueue_(as.call(list(...)))
 
   function() {
     status <- rrq$task_status(id)
