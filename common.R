@@ -33,14 +33,16 @@ ui <- function() {
           shiny::sliderInput(
             "parameter", "Parameter value",
             min = 0, max = 11, value = 5, step = 1),
+          shiny::actionButton("guess", "Guess!", class = "btn-primary"),
           shiny::actionButton("go", "Go!", class = "btn-primary")),
         shiny::mainPanel(
+          shiny::textOutput("value"),
           shiny::uiOutput("queue"),
           shiny::plotOutput("plot")))))
 }
 
 
-server <- function(name = "shinyq", workers = 0L) {
+server <- function(name = "shinyq", workers = 1L) {
   rrq <- start_queue(name, workers)
 
   function(input, output, session) {
@@ -55,6 +57,13 @@ server <- function(name = "shinyq", workers = 0L) {
         shinyjs::disable("go")
         job <- submit(rrq, quote(user_model), input$parameter)
         reactive_queue(rv, "data", job, session)
+      })
+
+    ## This will still run while the job blocks
+    shiny::observeEvent(
+      input$guess, {
+        output$value <- shiny::renderText(
+          paste("Random number:", round(rnorm(1), 3)))
       })
 
     ## Status field that for reporting how the queue looks when we're

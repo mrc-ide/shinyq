@@ -1,4 +1,2 @@
 source("common.R", local = TRUE)
-
-## And we're off!
-shiny::shinyApp(ui, server())
+shiny::shinyApp(ui, server(workers = 1L))
